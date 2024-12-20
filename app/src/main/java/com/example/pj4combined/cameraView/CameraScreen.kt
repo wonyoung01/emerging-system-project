@@ -37,6 +37,33 @@ import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
+/* [proj4] Required Library for logging inference time and system clock */
+import android.os.SystemClock
+import android.os.Environment
+import java.io.File
+
+/* [proj4] Function used to write on phone's Documents folder. */
+fun writeToPhone(fileName: String, data: String) {
+    try {
+        // Get the public Documents directory
+        val externalStorageDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val file = File(externalStorageDir, fileName)
+
+        // Ensure the directory exists
+        if (!externalStorageDir.exists()) {
+            externalStorageDir.mkdirs()
+        }
+
+        // Append data to the file
+        file.appendText(data)
+        println("Data written successfully to $fileName in external storage.")
+    } catch (e: Exception) {
+        println("An error occurred: ${e.message}")
+    }
+}
+
+/* [proj4] The file name to store the inference time and corresponding system clock. */
+const val fileName = "example.txt"
 
 private lateinit var bitmapBuffer: Bitmap
 
@@ -104,21 +131,29 @@ fun CameraScreen() {
     if (detectionResults.value != null) {
         // TODO:
         //  Choose your inference time threshold
+        /* [proj4] In my case (Samsung A34), 600 does not incur latency when llm isn't active. */
         val inferenceTimeThreshold = 600
 
         if (detectionResults.value!!.inferenceTime > inferenceTimeThreshold) {
+            /* [proj4] Report the system clock at threshold violation. */
+            writeToPhone(fileName,
+                "Interrupt   ${SystemClock.uptimeMillis()}\n")
             Log.d("CS330", "GPU too slow, switching to CPU start")
             // TODO:
             //  Create new classifier to be run on CPU with 2 threads
+
+            /* [proj4] Initializing new instance of human detector on CPU. */
 
             val personClassifierCPU = PersonClassifier()
             personClassifierCPU.initialize(context, threadNumber = 2, useGPU = false)
             personClassifierCPU.setDetectorListener(listener)
 
-            // The analyzer can then be assigned to the instance
-
             // TODO:
             //  Set imageAnalyzer to use the new classifier
+            /* [proj4] Setting an analyzer will signal to the
+                camera that it should begin sending data.
+                The stream of data can be stopped by calling `clearAnalyzer`
+             */
             imageAnalyzer.clearAnalyzer()
             imageAnalyzer.setAnalyzer(cameraExecutor) { image ->
                 detectObjects(image, personClassifierCPU)
@@ -136,6 +171,9 @@ fun CameraScreen() {
                 val detectionResult = detectionResults.value!!
                 withStyle(style = SpanStyle(color = Color.Blue, fontSize = 20.sp)) {
                     append("inference time ${detectionResult.inferenceTime}\n")
+                    /* [proj4] Report the system clock and current inference time. */
+                    writeToPhone(fileName,
+                        "Inference   ${SystemClock.uptimeMillis()}   ${detectionResult.inferenceTime}\n")
                 }
                 if (detectionResult.detections.find { it.categories[0].label == "person" } != null) {
                     withStyle(style = SpanStyle(color = Color.Red, fontSize = 40.sp)) {
